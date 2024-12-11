@@ -1,0 +1,274 @@
+---
+title: "ARTIS Data Ingest"
+format: pdf
+editor: visual
+---
+
+```{r setup_library_paths}
+
+
+#### Library #####
+library(data.table)
+library(dplyr)
+library(readr)
+library(stringr)
+library(purrr)
+library(tidyr)
+
+#### Directory setup #####
+
+# Newest data
+datadir_new <- file.path("~", "Documents", "UW-SAFS", "ARTIS", "data",
+                         "model_inputs_raw_v2_0")
+# last data ingest
+datadir_old <- file.path("~", "Documents", "UW-SAFS", "ARTIS", "data",
+                         "model_inputs_raw")
+
+# List all subdirectories in datadir_new
+subdirs_new <- list.dirs(datadir_new, recursive = TRUE, full.names = TRUE)
+subdirs_old <- list.dirs(datadir_old, recursive = TRUE, full.names = TRUE)
+
+# FAO Global production regex pattern
+pattern_fao <- regex("(global[\\s_-]*production)", ignore_case = TRUE)
+
+# FAO Global production directory
+fao_dir_new <- subdirs_new[str_detect(subdirs_new, pattern_fao)]
+fao_dir_old <- subdirs_old[str_detect(subdirs_old, pattern_fao)]
+
+# BACI regex pattern
+pattern_baci <- regex("(baci)", ignore_case = TRUE)
+
+# BACI directory
+baci_dir_new <- subdirs_new[str_detect(subdirs_new, pattern_baci)]
+#baci_dir_old <- subdirs_old[str_detect(subdirs_old, pattern_baci)]
+
+```
+
+```{r}
+
+
+
+# Get lists of comparable files from both directories
+# files_new <- scan_dir(baci_dir_new)
+# files_old <- scan_dir(datadir_old, rg = "(?i)baci") # old model_inputs_raw/ does not have BACI folder
+
+
+
+# Get lists of comparable files from both directories
+# files_new <- scan_dir(baci_dir_new)
+# files_old <- scan_dir(baci_dir_old, rg = "(?i)baci") # old model_inputs_raw/ does not have BACI folder
+
+# Match files by name
+# matched_files <- tibble(files = c(basename(files_new), basename(files_old)),
+#                         data_version = c(rep("new", length(files_new)), 
+#                                          rep("old", length(files_old)))
+#                         ) %>% 
+#   mutate(
+#       files_std = files %>%
+#       str_remove("^filtered_") %>%    # Remove "filtered_" prefix
+#       str_remove("_V\\d{6,7}[a-z]*")  # Remove "_V202201" or "_V202401b"
+#   )
+
+############# ChatGPT
+
+files_new <- scan_dir(fao_dir_new)
+files_old <- scan_dir(fao_dir_old)
+
+# Function to scan a directory for files
+scan_dir <- function(dir, rg = "") {
+  list.files(dir, pattern = rg, recursive = TRUE, full.names = TRUE)
+}
+
+# Function to scan a directory for files
+scan_dir <- function(dir, rg = "") {
+  if (length(dir) == 0) return(character(0)) # Handle empty directories
+  list.files(dir, pattern = rg, recursive = TRUE, full.names = TRUE)
+}
+
+# Build the `matched_files` dataframe with file paths and standardize file names
+all_files <- tibble(
+  full_path = c(files_new, files_old),   # Full file paths
+  files = c(basename(files_new), basename(files_old)), # Just the file names
+  directory = c(rep("new", length(files_new)), rep("old", length(files_old))) # New or old directory
+) %>%
+  mutate(
+    files_std = files %>% 
+      str_remove("^filtered_") %>% # Remove "filtered_" prefix
+      str_remove("_V\\d{6,7}[a-z]*") # Remove version suffix (like _V202201)
+  ) 
+
+
+# Compare the files by matching `files_std` in new and old directories
+comparison_pairs <- all %>%
+  group_by(files_std) %>%
+  filter(n() == 2) %>%  # Only keep files present in both new and old directories
+  pivot_wider(names_from = directory, values_from = full_path) %>% 
+  select(files_std, new, old)
+
+
+# Function to compare two data files
+compare_files <- function(file_new, file_old) {
+  # Check if both files exist
+  if (!file.exists(file_new) || !file.exists(file_old)) {
+    return(list(error = "One or both files do not exist"))
+  }
+  
+  # Load datasets
+  data_new <- tryCatch(fread(file_new), error = function(e) return(NULL))
+  data_old <- tryCatch(fread(file_old), error = function(e) return(NULL))
+  
+  if (is.null(data_new) || is.null(data_old)) {
+    return(list(error = "One or both files could not be read"))
+  }
+  
+  # Collect comparison details
+  list(
+    file_name = basename(file_new),
+    dimensions = list(
+      new = dim(data_new),
+      old = dim(data_old)
+    ),
+    columns = list(
+      added = setdiff(colnames(data_new), colnames(data_old)),
+      removed = setdiff(colnames(data_old), colnames(data_new)),
+      unchanged = intersect(colnames(data_new), colnames(data_old))
+    ),
+    data_types = tibble(
+      column = union(colnames(data_new), colnames(data_old)),
+      old_type = map_chr(union(colnames(data_new), colnames(data_old)), 
+                         ~ ifelse(.x %in% colnames(data_old), 
+                                  class(data_old[[.x]])[1], NA_character_)),
+      new_type = map_chr(union(colnames(data_new), colnames(data_old)), 
+                         ~ ifelse(.x %in% colnames(data_new), 
+                                  class(data_new[[.x]])[1], NA_character_)),
+      changed = map2_lgl(
+        map_chr(union(colnames(data_new), colnames(data_old)), 
+                ~ ifelse(.x %in% colnames(data_old), 
+                         class(data_old[[.x]])[1], NA_character_)),
+        map_chr(union(colnames(data_new), colnames(data_old)), 
+                ~ ifelse(.x %in% colnames(data_new), 
+                         class(data_new[[.x]])[1], NA_character_)),
+        ~ .x != .y & !is.na(.x) & !is.na(.y)
+      )
+    ),
+    unique_values = map_df(intersect(colnames(data_new), colnames(data_old)), ~ {
+      tibble(
+        column = .x,
+        old_unique = n_distinct(data_old[[.x]]),
+        new_unique = n_distinct(data_new[[.x]]),
+        difference = n_distinct(data_new[[.x]]) - n_distinct(data_old[[.x]])
+      )
+    })
+  )
+}
+
+# Compare files from the new and old directories
+comparison_results <- comparison_pairs %>%
+  mutate(
+    comparison = map2(new, old, ~ compare_files(.x, .y))
+  )
+
+# Print the first few comparison results
+print(comparison_results$comparison[[1]])
+
+
+```
+
+```{r}
+library(tidyverse)
+library(data.table) # for fread()
+
+# 1. **Scan directories**
+scan_dir <- function(dir, rg = "") {
+  if (length(dir) == 0) return(character(0)) # Handle empty directories
+  list.files(dir, pattern = rg, recursive = TRUE, full.names = TRUE)
+}
+
+# 2. **Read files from directories**
+files_new <- scan_dir(fao_dir_new)
+files_old <- scan_dir(fao_dir_old)
+
+# 3. **Standardize file names**
+all_files <- tibble(
+  full_path = c(files_new, files_old),
+  files = c(basename(files_new), basename(files_old)),
+  directory = c(rep("new", length(files_new)), rep("old", length(files_old)))
+) %>%
+  mutate(
+    files_std = files %>% 
+      str_remove("^filtered_") %>%  # Remove "filtered_" prefix
+      str_remove("_V\\d{6,7}[a-z]*") %>% # Remove version suffix (like _V202201)
+      str_replace_all("\\.[a-zA-Z0-9]+$", "") %>%  # Remove extensions like .csv
+      str_replace_all("[^a-zA-Z0-9]", "_") %>%   # Replace non-alphanumeric characters with underscores
+      str_to_lower()  # Convert to lowercase
+  )
+
+# 4. **Pivot to match new and old files**
+file_level_log <- all_files %>%
+  pivot_wider(
+    id_cols = files_std,             # Only use files_std to identify matching files
+    names_from = directory, 
+    values_from = full_path, 
+    names_prefix = ""
+  ) %>%
+  mutate(
+    exists_in_old = !is.na(old),
+    exists_in_new = !is.na(new),
+    size_old_mb = ifelse(!is.na(old), file.info(old)$size / 1e6, NA_real_),
+    size_new_mb = ifelse(!is.na(new), file.info(new)$size / 1e6, NA_real_),
+    size_change_mb = size_new_mb - size_old_mb
+  )
+
+
+# 5. **Data-Level Change Log**
+comparison_pairs <- file_level_log %>%
+  filter(exists_in_old & exists_in_new) %>%
+  filter(str_detect(new, "\\.csv$") & str_detect(old, "\\.csv$")) %>%
+  select(files_std, new, old)
+
+compare_files <- function(file_new, file_old) {
+  data_new <- fread(file_new)
+  data_old <- fread(file_old)
+  
+  list(
+    file_name_new = basename(file_new),
+    file_name_old = basename(file_old),
+    new_rows = nrow(data_new),
+    old_rows = nrow(data_old),
+    row_diff = nrow(data_new) - nrow(data_old),
+    new_cols = colnames(data_new),
+    old_cols = colnames(data_old),
+    added_cols = setdiff(colnames(data_new), 
+                         colnames(data_old)),
+    removed_cols = setdiff(colnames(data_old), 
+                           colnames(data_new)),
+    data_type_changes = tibble(
+      column = union(colnames(data_new), colnames(data_old)),
+      # if col is in data_old get its class - else it is NA_character_
+      old_type = map_chr(union(colnames(data_new), colnames(data_old)), 
+                         ~ ifelse(.x %in% colnames(data_old), 
+                                  class(data_old[[.x]])[1], 
+                                  NA_character_)),
+      # if col is in data_new get its class - else it is NA_character_
+      new_type = map_chr(union(colnames(data_new), 
+                               colnames(data_old)), 
+                         ~ ifelse(.x %in% colnames(data_new), 
+                                  class(data_new[[.x]])[1], 
+                                  NA_character_))
+    ) %>% 
+      mutate(type_changed = old_type != new_type)
+  )
+}
+
+data_level_log <- comparison_pairs %>%
+  mutate(comparison = map2(new, old, ~ compare_files(.x, .y)))
+
+# Extract data-level comparison details
+data_change_log <- data_level_log %>%
+  unnest_wider(comparison) %>%
+  select(file_name_new, file_name_old, new_rows, old_rows, row_diff, 
+         added_cols, removed_cols, data_type_changes)
+
+
+```
+
