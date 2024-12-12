@@ -126,13 +126,13 @@ compare_files <- function(file_new, file_old) {
     data_new <- fread(file_new)
   } 
   if(basename(file_new) %>% str_detect("\\.xlsx$")) {
-    data_new <- readxl::read_xlsx(file_new)
+    data_new <- readxl::read_xlsx(file_new, skip=1)
   }
   if(basename(file_old) %>% str_detect("\\.csv$")) {
     data_old <- fread(file_old)
   }
   if(basename(file_old) %>% str_detect("\\.xlsx$")) {
-    data_old <- readxl::read_xlsx(file_old)
+    data_old <- readxl::read_xlsx(file_old, skip=1)
   }
 
   
