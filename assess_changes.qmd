@@ -10,12 +10,9 @@ execute:
   include: FALSE
   message: FALSE
   warning: FALSE
-  
 ---
 
-```{r}
-#| label: setup
-
+```{r setup}
 
 #### Library #####
 library(data.table)
@@ -24,6 +21,8 @@ library(readr)
 library(stringr)
 library(purrr)
 library(tidyr)
+library(knitr)
+library(kableExtra)
 
 #### Directory setup #####
 
@@ -42,8 +41,7 @@ data_v_old <- "2022.1.1"
 data_v_new <- "2024.1.0"
 ```
 
-```{r}
-#| label: get-files
+```{r get-files}
 
 # List all subdirectories in datadir_new
 subdirs_new <- list.dirs(datadir_new, recursive = TRUE, full.names = TRUE)
@@ -65,8 +63,7 @@ fao_dir_old <- subdirs_old[str_detect(subdirs_old, pattern_fao)]
 
 ```
 
-```{r}
-#| label: assess-file-changes
+```{r assess-file-changes}
 
 # 1. **Scan directories**
 scan_dir <- function(dir, rg = "") {
@@ -104,8 +101,12 @@ file_level_log <- all_files %>%
   mutate(
     exists_in_old = !is.na(old),
     exists_in_new = !is.na(new),
-    size_old_mb = ifelse(!is.na(old), file.info(old)$size / 1e6, NA_real_),
-    size_new_mb = ifelse(!is.na(new), file.info(new)$size / 1e6, NA_real_),
+    size_old_mb = ifelse(!is.na(old), 
+                         file.info(old)$size / 1e6, 
+                         NA_real_),
+    size_new_mb = ifelse(!is.na(new), 
+                         file.info(new)$size / 1e6, 
+                         NA_real_),
     size_change_mb = size_new_mb - size_old_mb
   )
 
@@ -143,10 +144,16 @@ compare_files <- function(file_new, file_old) {
     row_diff = nrow(data_new) - nrow(data_old),
     new_cols = colnames(data_new),
     old_cols = colnames(data_old),
-    added_cols = setdiff(colnames(data_new), 
-                         colnames(data_old)),
-    removed_cols = setdiff(colnames(data_old), 
-                           colnames(data_new)),
+    # single col value will create a vector column - >1 cols will create list-col
+    added_cols = if (length(setdiff(colnames(data_new),
+                                    colnames(data_old))) > 0) {
+      setdiff(colnames(data_new), colnames(data_old)) 
+    } else { NA_character_},
+    removed_cols = if (length(setdiff(colnames(data_old),
+                                      colnames(data_new))) > 0) {
+      setdiff(colnames(data_old), colnames(data_new)) 
+    } else {NA_character_},
+                   
     data_type_changes = tibble(
       column = union(colnames(data_new), colnames(data_old)),
       # if col is in data_old get its class - else it is NA_character_
@@ -196,10 +203,9 @@ model inputs (data build) fed directly into the ARTIS model.
 - `r raw_data_type` ``r data_v_old`` is the previous data version
 - `r raw_data_type` ``r data_v_new`` is the data version to be ingested in the upcoming ARTIS ``r artis_next`` model run
 
-### Presence / Absence of files
+### File changes
 
-```{r}
-#| label: logic-files-missing
+```{r logic-files-missing}
 #| results: 'asis'
 #| include: TRUE
 
@@ -210,8 +216,7 @@ if (any(file_level_log$exists_in_old == FALSE)) {
 }
 ```
 
-```{r}
-#| label: logic-files-added
+```{r logic-files-added}
 #| results: 'asis'
 #| include: TRUE
 
@@ -222,4 +227,34 @@ if (any(file_level_log$exists_in_new == FALSE)) {
 }
 ```
 
-### 
+### Column changes
+
+Only matching .csv and .xlsx files were compared.
+
+```{r}
+#| label: tab:added_removed_columns
+#| include: TRUE
+#| results: 'asis'
+
+# Filter the data_change_log to only include files with added or removed columns
+added_cols_log <- data_change_log %>% 
+  filter(!is.na(added_cols) | !is.na(removed_cols)) %>% 
+  select(file_name_new, added_cols, removed_cols)
+
+if (nrow(added_cols_log) > 0 ) {
+  # Create a kableExtra table with automatic scaling
+  added_cols_log %>%
+    kbl(
+      col.names = c("File Name", "Added Columns", "Removed Columns"),
+      caption = "Files where columns were added/removed in the new version.",
+      align = c('l', 'c', 'c')
+    ) %>%
+    kable_styling(
+      full_width = TRUE, 
+      latex_options = c("scale_down", "hold_position")
+    )
+}
+
+```
+
+
