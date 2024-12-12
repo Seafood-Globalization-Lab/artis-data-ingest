@@ -112,12 +112,28 @@ file_level_log <- all_files %>%
 # 5. **Data-Level Change Log**
 comparison_pairs <- file_level_log %>%
   filter(exists_in_old & exists_in_new) %>%
-  filter(str_detect(new, "\\.csv$") & str_detect(old, "\\.csv$")) %>%
+  # compare matching .csv files 
+  filter((str_detect(new, "\\.csv$") & str_detect(old, "\\.csv$")) |
+           # OR matching .xlsx files
+           (str_detect(new, "\\.xlsx$") & str_detect(old, "\\.xlsx$"))) %>%
   select(files_std, new, old)
 
+library(readxl)
+
 compare_files <- function(file_new, file_old) {
-  data_new <- fread(file_new)
-  data_old <- fread(file_old)
+  if(basename(file_new) %>% str_detect("\\.csv$")) {
+    data_new <- fread(file_new)
+  } 
+  if(basename(file_new) %>% str_detect("\\.xlsx$")) {
+    data_new <- readxl::read_xlsx(file_new)
+  }
+  if(basename(file_old) %>% str_detect("\\.csv$")) {
+    data_old <- fread(file_old)
+  }
+  if(basename(file_old) %>% str_detect("\\.xlsx$")) {
+    data_old <- readxl::read_xlsx(file_old)
+  }
+
   
   list(
     file_name_new = basename(file_new),
@@ -168,18 +184,19 @@ between raw input data versions ingested into the ARTIS (Aquatic Resource Trade
 in Species) Model. These raw data will then be processed and standardized to the 
 model inputs (data build) fed directly into the ARTIS model. 
 
-*ARTIS model versions*
+### ARTIS model versions
 
 - ARTIS ``r artis_prev`` was the previous model run
 - ARTIS ``r artis_next`` is upcoming model run
 
 # FAO Global Production
 
-*Raw input data versions*
+### Raw input data versions
 
 - `r raw_data_type` ``r data_v_old`` is the previous data version
 - `r raw_data_type` ``r data_v_new`` is the data version to be ingested in the upcoming ARTIS ``r artis_next`` model run
 
+### Presence / Absence of files
 
 ```{r}
 #| label: logic-files-missing
@@ -204,3 +221,5 @@ if (any(file_level_log$exists_in_new == FALSE)) {
           )
 }
 ```
+
+### 
