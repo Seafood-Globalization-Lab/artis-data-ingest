@@ -32,6 +32,7 @@ datadir_new <- file.path("~", "Documents", "UW-SAFS", "ARTIS", "data",
 # last data ingest
 datadir_old <- file.path("~", "Documents", "UW-SAFS", "ARTIS", "data",
                          "model_inputs_raw")
+modelfundir <- file.path("~", "Documents", "git-projects", "artis-model", "R")
 
 # values for report
 raw_data_type <- "FAO Global Production"
@@ -257,4 +258,76 @@ if (nrow(added_cols_log) > 0 ) {
 
 ```
 
+```{r country-species-changes}
+# source function to build usable 2022 FAO production data
+source(file.path(modelfundir, "rebuild_fao_2022_dat.R"))
+# source function to build usable 2024 FAO production data
+source(file.path(modelfundir, "rebuild_fao_2024_dat.R"))
+
+# combine and organize prod files
+prod_old <- rebuild_fao_2022_dat(datadir = datadir_old, 
+                                 filename = "GlobalProduction_2022.1.1.zip")
+prod_new <- rebuild_fao_2024_dat(datadir = datadir_new, 
+                                 filename = "GlobalProduction_2024.1.0.zip")
+
+# define cleaning function
+# code is copied and changed from `classify_prod_dat.R` function in artis-model repo
+clean_prod <- function(a_prod_file) {
+  # code is copied and changed from `classify_prod_dat.R` function in artis-model repo
+      prod_ts <- a_prod_file %>%
+        # select columns we are interested in for the purposes of comparing version changes
+        select(country, prod_method, species_name_en, species_scientific_name,
+               country_iso3_code, species_major_group) %>% 
+      # Standardize column names between FAO and SAU datasets 
+      dplyr::rename(
+        CommonName = species_name_en, 
+        SciName = species_scientific_name,
+        country_iso3_alpha = country_iso3_code, # alpha iso code
+        country_iso3_numeric = country) %>% # numeric iso code 
+      mutate(CommonName=tolower(as.character(CommonName)),
+             SciName=tolower(as.character(SciName))) %>%
+      # Trim any leading/trailing whitespace
+      mutate_all(str_trim) %>%
+      # Filter out groups not considered in this analysis  
+      filter(!species_major_group %in% c("PLANTAE AQUATICAE",
+                                         "MAMMALIA",
+                                         "Crocodiles and alligators",
+                                         "Turtles",
+                                         "Frogs and other amphibians",
+                                         "Corals",
+                                         "Sponges", 
+                                         "Pearls, mother-of-pearl, shells")) %>%
+
+      mutate(
+        SciName = gsub(SciName, 
+                       pattern=" \\(\\=.*", 
+                       replacement=""))
+      
+      return(prod_ts)
+  
+}
+
+# clean prod versions 
+prod_old <- clean_prod(prod_old)
+prod_new <- clean_prod(prod_new)
+
+###### Change in countries 
+country_n_old <- length(unique(prod_old$country_iso3_alpha))
+country_n_new <- length(unique(prod_new$country_iso3_alpha))
+
+country_unique_old <- setdiff(unique(prod_old$country_iso3_alpha),
+                              unique(prod_new$country_iso3_alpha))
+country_unique_new <- setdiff(unique(prod_new$country_iso3_alpha),
+                              unique(prod_old$country_iso3_alpha))
+
+####### Change in species 
+sp_n_old <- length(unique(prod_old$SciName))
+sp_n_new <- length(unique(prod_new$SciName))
+
+sp_unique_old <- setdiff(unique(prod_old$SciName),
+                         unique(prod_new$SciName))
+sp_unique_new <- setdiff(unique(prod_new$SciName),
+                         unique(prod_old$SciName))
+
+```
 
