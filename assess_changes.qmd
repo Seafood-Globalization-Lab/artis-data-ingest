@@ -363,7 +363,7 @@ sp_unique_new <- setdiff(unique(prod_new$SciName),
 #| include: true
 #| output: true
 
-sp_unique_old
+sort(sp_unique_old)
 ```
 
   - unique to the new version: 
@@ -372,6 +372,6 @@ sp_unique_old
 #| include: true
 #| output: true
 
-sp_unique_new
+sort(sp_unique_new)
 ```
 
