@@ -44,7 +44,7 @@ file_urls <- unique(file_urls)
 print(file_urls)
 
 # Specify the directory to save the downloaded files
-download_dir <- "path/to/your/download/directory"
+download_dir <- file.path("~/Documents/UW-SAFS/ARTIS/data/model_inputs_raw_v2_0/baci_raw")
 
 # Create the directory if it doesn't exist
 if (!dir.exists(download_dir)) {
